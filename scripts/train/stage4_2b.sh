@@ -21,17 +21,17 @@ echo "WORLD_SIZE: $WORLD_SIZE"
 echo "NPROC_PER_NODE: $NPROC_PER_NODE"
 
 # Training Arguments
-GLOBAL_BATCH_SIZE=128
-LOCAL_BATCH_SIZE=2
-GRADIENT_ACCUMULATION_STEPS=$[$GLOBAL_BATCH_SIZE/($WORLD_SIZE*$NPROC_PER_NODE*$LOCAL_BATCH_SIZE)]
+GLOBAL_BATCH_SIZE=4
+LOCAL_BATCH_SIZE=1
+GRADIENT_ACCUMULATION_STEPS=1
 echo $GRADIENT_ACCUMULATION_STEPS
 
 # Log Arguments
 export WANDB_PROJECT=videollama3_qwen2.5_2b
 PRECEDING_RUN_NAME=stage_3
 RUN_NAME=stage_4
-DATA_DIR=DATASETS/STAGE4
-OUTP_DIR=work_dirs
+DATA_DIR=/workspace/data_root
+OUTP_DIR=/workspace
 
 torchrun --nnodes $WORLD_SIZE \
     --nproc_per_node $NPROC_PER_NODE \
@@ -41,10 +41,10 @@ torchrun --nnodes $WORLD_SIZE \
     videollama3/train.py \
     --deepspeed scripts/zero1.json \
     --model_type videollama3_qwen2 \
-    --model_path ${OUTP_DIR}/${WANDB_PROJECT}/${PRECEDING_RUN_NAME} \
-    --vision_encoder DAMO-NLP-SG/SigLIP-NaViT \
+    --model_path /workspace/videollama3_2b_local \
+    --vision_encoder /workspace/VL3-SigLIP-NaViT \
     --mm_projector_type mlp2x_gelu \
-    --data_path ${DATA_DIR}/annotations.jsonl \
+    --data_path ${DATA_DIR}/stage3/stage3_selectTraindata.jsonl \
     --data_folder ${DATA_DIR} \
     --image_merge_size 2 \
     --video_merge_size 2 \
@@ -56,13 +56,13 @@ torchrun --nnodes $WORLD_SIZE \
     --tf32 True \
     --fp16 False \
     --output_dir ${OUTP_DIR}/${WANDB_PROJECT}/${RUN_NAME} \
-    --num_train_epochs 1 \
+    --num_train_epochs 5 \
     --per_device_train_batch_size $LOCAL_BATCH_SIZE \
     --per_device_eval_batch_size 4 \
     --gradient_accumulation_steps $GRADIENT_ACCUMULATION_STEPS \
     --evaluation_strategy "no" \
     --save_strategy "steps" \
-    --save_steps 1000 \
+    --save_steps 2000 \
     --save_total_limit 2 \
     --llm_lr 1e-5 \
     --mm_projector_lr 1e-5 \

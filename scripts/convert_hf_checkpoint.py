@@ -19,7 +19,7 @@ if __name__ == "__main__":
 
     new_state_dict = dict()
     for key, tensor in model.state_dict().items():
-        new_key = key.replace("vision_encoder", "vision_encoder.vision_encoder")
+        new_key = key.replace("vision_encoder", "vision_encoder")
         print(f"Convert {key} -> {new_key}")
         new_state_dict[new_key] = tensor
     torch.save(new_state_dict, os.path.join(args.save_path, "pytorch_model.bin"))
