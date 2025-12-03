@@ -1,99 +1,140 @@
 import json
-import os
-import numpy as np
-from sklearn.metrics.pairwise import cosine_similarity
-from sentence_transformers import SentenceTransformer
-from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
-from rouge import Rouge
-from bert_score import score as bert_score
+import re
+from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
 
-class ProfitabilityEvaluator:
-    def __init__(self, data_root):
+# ================================
+# 📘 Dataset
+# ================================
+class EEGroupSolidarityDataset:
+    def __init__(self, data_path):
         self.data = []
-        self.model = SentenceTransformer("all-MiniLM-L6-v2")
-        self.rouge = Rouge()
-        
-        # 讀取 JSONL 檔案
-        input_file = os.path.join(data_root)
-        with open(input_file, "r", encoding="utf-8") as f:
+        with open(data_path, "r", encoding="utf-8") as f:
             for line in f:
-                item = json.loads(line)
-                self.data.append(item)
+                self.data.append(json.loads(line))
 
-    def process_response(self, response):
-        """處理模型回應，確保格式符合 JSON"""
-        return response
+    def __len__(self):
+        return len(self.data)
 
-    def evaluate(self, results):
-        """評估模型輸出，計算與 ground_truth 的語意相似性、BLEU、ROUGE 和 BERTScore"""
-        similarities = []
-        bleu1_scores, bleu2_scores, bleu3_scores, bleu4_scores = [], [], [], []
-        rouge1_scores, rouge2_scores, rougeL_scores = [], [], []
-        bert_scores = []
-        infos = []
-        
-        smooth_fn = SmoothingFunction().method1  # 平滑 BLEU 避免零分數
+    def __getitem__(self, idx):
+        item = self.data[idx]
+        conversations = item["conversations"]
 
-        for entry in results:
-            data_id = entry["data_id"]
-            prediction = entry["prediction"]
-            ground_truth = entry.get("ground_truth", "")
+        # 選擇 Question
+        question = None
+        for conv in conversations:
+            if conv.get("from") == "human" and "Question:" in conv["value"]:
+                question = conv["value"].split("Question:")[-1].strip()
+                break
 
-            # 計算語意相似度
-            pred_embedding = self.model.encode(prediction, convert_to_tensor=True)
-            gt_embedding = self.model.encode(ground_truth, convert_to_tensor=True)
-            similarity = cosine_similarity(pred_embedding.cpu().numpy().reshape(1, -1), gt_embedding.cpu().numpy().reshape(1, -1))[0][0]
-            similarities.append(similarity)
+        gt_obj = conversations[-1]
+        gt_label = {}
+        try:
+            val = gt_obj["value"]
+            if isinstance(val, str):
+                gt_label = json.loads(val)
+            elif isinstance(val, dict):
+                gt_label = val
+        except Exception:
+            gt_label = {}
 
-            # 計算不同 n-gram BLEU 分數
-            reference = [ground_truth.split()]
-            candidate = prediction.split()
-            bleu1 = sentence_bleu(reference, candidate, weights=(1, 0, 0, 0), smoothing_function=smooth_fn)
-            bleu2 = sentence_bleu(reference, candidate, weights=(0.5, 0.5, 0, 0), smoothing_function=smooth_fn)
-            bleu3 = sentence_bleu(reference, candidate, weights=(0.33, 0.33, 0.33, 0), smoothing_function=smooth_fn)
-            bleu4 = sentence_bleu(reference, candidate, weights=(0.25, 0.25, 0.25, 0.25), smoothing_function=smooth_fn)
-            
-            bleu1_scores.append(bleu1)
-            bleu2_scores.append(bleu2)
-            bleu3_scores.append(bleu3)
-            bleu4_scores.append(bleu4)
-            
-            # 計算 ROUGE-1, ROUGE-2, ROUGE-L
-            rouge_scores = self.rouge.get_scores(prediction, ground_truth)[0]
-            rouge1_scores.append(rouge_scores["rouge-1"]["f"])
-            rouge2_scores.append(rouge_scores["rouge-2"]["f"])
-            rougeL_scores.append(rouge_scores["rouge-l"]["f"])
-            
-            # 計算 BERTScore
-            P, R, F1 = bert_score([prediction], [ground_truth], lang="en", rescale_with_baseline=True)
-            bert_scores.append(F1.mean().item())
-
-            infos.append({
-                "data_id": data_id,
-                "ground_truth": ground_truth,
-                "prediction": prediction,
-                "similarity_score": similarity,
-                "bleu1_score": bleu1,
-                "bleu2_score": bleu2,
-                "bleu3_score": bleu3,
-                "bleu4_score": bleu4,
-                "rouge_1_score": rouge_scores["rouge-1"]["f"],
-                "rouge_2_score": rouge_scores["rouge-2"]["f"],
-                "rouge_l_score": rouge_scores["rouge-l"]["f"],
-                "bert_score": F1.mean().item()
-            })
-
-        # 計算平均分數
-        metrics = {
-            "Average Semantic Similarity": np.mean(similarities),
-            "Average BLEU-1 Score": np.mean(bleu1_scores),
-            "Average BLEU-2 Score": np.mean(bleu2_scores),
-            "Average BLEU-3 Score": np.mean(bleu3_scores),
-            "Average BLEU-4 Score": np.mean(bleu4_scores),
-            "Average ROUGE-1 Score": np.mean(rouge1_scores),
-            "Average ROUGE-2 Score": np.mean(rouge2_scores),
-            "Average ROUGE-L Score": np.mean(rougeL_scores),
-            "Average BERTScore": np.mean(bert_scores)
+        return {
+            "data_id": item.get("data_id", str(idx)),
+            "text_inputs": question,
+            "image_inputs": {
+                "video_path": item["video"][0],
+                "fps": 1,
+                "max_frames": 180
+            },
+            "ground_truth": gt_label
         }
 
+# ================================
+# 🧠 Benchmark
+# ================================
+class EEGroupSolidarityBenchmark:
+    def __init__(self):
+        # 每個欄位自己的分類設定，基於需求已調整
+        self.metric_cfg = {
+            "Emotional Energy (EE)": {
+                "labels": ["low", "medium", "high"],
+                "map": {"low": 0, "medium": 1, "high": 2}
+            },
+            "Group Solidarity Participation (GSp)": {
+                "labels": ["low", "medium", "high"],
+                "map": {"low": 0, "medium": 1, "high": 2}
+            },
+            "Group Solidarity Cohesion (GSc)": {  # updated
+                "labels": ["low", "medium", "high"],
+                "map": {"low": 0, "medium": 1, "high": 2}
+            },
+            "Group Symbols (GSy)": {
+                "labels": ["low", "high"],
+                "map": {"low": 0, "high": 1}
+            },
+        }
+
+    def _label_to_id(self, value, field):
+        """將字串類別轉 mapping ID"""
+        cfg = self.metric_cfg[field]
+        value = (value or "").strip().lower()
+        return cfg["map"].get(value, -1)
+
+    def evaluate(self, results):
+        metrics = {}
+        infos = {field: [] for field in self.metric_cfg}
+
+        for field in self.metric_cfg:
+            y_true, y_pred = [], []
+            for entry in results:
+                ground_truth = entry.get("ground_truth", {})
+                prediction = entry.get("prediction", {})
+                gt_label = self._label_to_id(ground_truth.get(field), field)
+                pred_label = self._label_to_id(prediction.get(field), field)
+
+                if gt_label == -1 or pred_label == -1:
+                    continue
+
+                y_true.append(gt_label)
+                y_pred.append(pred_label)
+
+                infos[field].append({
+                    "data_id": entry.get("data_id"),
+                    "ground_truth": ground_truth.get(field),
+                    "prediction": prediction.get(field),
+                    "correct": gt_label == pred_label
+                })
+
+            labels = list(range(len(self.metric_cfg[field]["labels"])))
+            metrics[field] = {
+                "Label order": self.metric_cfg[field]["labels"],
+                "Confusion Matrix": confusion_matrix(y_true, y_pred, labels=labels).tolist(),
+                "Accuracy": accuracy_score(y_true, y_pred),
+                "Precision": precision_score(y_true, y_pred, average='macro', zero_division=0),
+                "Recall": recall_score(y_true, y_pred, average='macro', zero_division=0),
+                "F1 Score": f1_score(y_true, y_pred, average='macro', zero_division=0),
+            }
+
         return metrics, infos
+
+    def process_response(self, response):
+        """解析模型輸出為結構化 dict 格式"""
+        try:
+            if isinstance(response, dict):  # 模型有時會直接輸出 dict
+                return response
+            elif response.strip().startswith("{"):  # JSON 格式
+                return json.loads(response)
+            else:
+                # 非 JSON 格式，使用 regex 抽取
+                result = {}
+                for field in self.metric_cfg:
+                    pattern = field.split("(")[0].strip()  # ex: "Emotional Energy"
+                    # 支援 low / medium / high
+                    m = re.search(
+                        rf"{pattern}.*?:.*?(low|medium|high)",
+                        response.lower()
+                    )
+                    if m:
+                        result[field] = m.group(1)
+                return result
+        except Exception:
+            return {}

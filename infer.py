@@ -7,16 +7,16 @@ from videollama3.mm_utils import load_video, load_images
 def main():
     disable_torch_init()
 
-    modal = "text"
-    conversation = [
-        {
-            "role": "user",
-            "content": "What is the color of bananas?",
-        }
-    ]
+    # modal = "text"
+    # conversation = [
+    #     {
+    #         "role": "user",
+    #         "content": "What is the color of bananas?",
+    #     }
+    # ]
 
     modal = "image"
-    frames = load_images("assets/sora.png")[0]
+    frames = load_images("./assets/sora.png")[0]
     conversation = [
         {
             "role": "user",
@@ -39,7 +39,8 @@ def main():
         }
     ]
 
-    model_path = "/path/to/your/model"
+
+    model_path = "/workspace/videollama3_2b_local"
     model, processor = model_init(model_path)
 
     inputs = processor(

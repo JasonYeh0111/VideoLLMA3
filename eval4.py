@@ -1,9 +1,10 @@
 from transformers import AutoModelForCausalLM, AutoProcessor
 import torch
 import os
-from Benchmark3 import EEGroupSolidarityDataset,EEGroupSolidarityBenchmark
 import json
+from Benchmark4 import RitualContinuityDataset,RitualContinuityBenchmark
 from tqdm import tqdm
+from peft import PeftModel
 
 model_path = "../finetune"
 model = AutoModelForCausalLM.from_pretrained(
@@ -14,6 +15,55 @@ model = AutoModelForCausalLM.from_pretrained(
     attn_implementation="flash_attention_2"
 )
 processor = AutoProcessor.from_pretrained(model_path, trust_remote_code=True)
+
+# # ===============================
+# # 1. 路徑設定（請填入你的）
+# # ===============================
+# base_model_path = "/workspace/videollama3_2b_local"  # 原始模型
+# lora_path = "/workspace/videollama3_qwen2.5_2b/stage_4_lora"  # 你的 LoRA checkpoint（含 adapter_model.bin）
+# non_lora_path = "/workspace/videollama3_qwen2.5_2b/stage_4_lora/non_lora_trainables.bin"  # projector/encoder 微調（若存在則載入）
+
+# device = "cuda:0"
+
+# # ===============================
+# # 2. 載入 Base Model
+# # ===============================
+# model = AutoModelForCausalLM.from_pretrained(
+#     base_model_path,
+#     trust_remote_code=True,
+#     device_map={"": device},
+#     torch_dtype=torch.bfloat16,
+#     attn_implementation="flash_attention_2",
+# )
+
+# processor = AutoProcessor.from_pretrained(
+#     base_model_path,
+#     trust_remote_code=True
+# )
+
+# # ===============================
+# # 3. 載入 LoRA（adapter_model.bin）
+# # ===============================
+# model = PeftModel.from_pretrained(
+#     model,
+#     lora_path,
+#     device_map={"": device},
+#     torch_dtype=torch.bfloat16,
+# )
+
+# print("✔ LoRA adapter loaded.")
+
+# # ===============================
+# # 4. 載入 non_lora_trainables.bin（若存在）
+# # ===============================
+# if os.path.exists(non_lora_path):
+#     nl = torch.load(non_lora_path, map_location=device)
+#     model.load_state_dict(nl, strict=False)
+#     print("✔ non-LoRA projector/encoder weights loaded.")
+# else:
+#     print("⚠ No non_lora_trainables.bin found — only LoRA applied.")
+
+# model.eval()
 
 @torch.inference_mode()
 def infer(conversation):
@@ -30,12 +80,12 @@ def infer(conversation):
     response = processor.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
     return response
 
-data_root = "/workspace/data_root/task3_test.jsonl"
-dataset = EEGroupSolidarityDataset(data_root)
-benchmark = EEGroupSolidarityBenchmark()
+data_root = "/workspace/data_root/task4_test.jsonl"
+dataset = RitualContinuityDataset(data_root)
+benchmark = RitualContinuityBenchmark()
 
 results = []
-for idx in tqdm(range(len(dataset)), desc="Task3 evaluating"):
+for idx in tqdm(range(len(dataset)), desc="Task4 評估中"):
     sample = dataset[idx]
     data_id = sample["data_id"]
     text_inputs = sample["text_inputs"]
@@ -64,7 +114,7 @@ for idx in tqdm(range(len(dataset)), desc="Task3 evaluating"):
     })
 
 metrics, infos = benchmark.evaluate(results)
-output_file = "./result/finetune/stage3Results.json"
+output_file = "./result/finetune/stage4Results.json"
 os.makedirs(os.path.dirname(output_file), exist_ok=True)
 with open(output_file, "w", encoding="utf-8") as f:
     json.dump({"results": results, "metrics": metrics}, f, indent=4, ensure_ascii=False)
